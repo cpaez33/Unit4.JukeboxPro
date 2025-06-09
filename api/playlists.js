@@ -6,14 +6,20 @@ import {
   createPlaylist,
   getPlaylistById,
   getPlaylists,
+  getPlaylistsByUserId,
 } from "#db/queries/playlists";
+
 import { createPlaylistTrack } from "#db/queries/playlists_tracks";
 import { getTracksByPlaylistId } from "#db/queries/tracks";
+import requireUser from "#middleware/requireUser";
+
+router.use(requireUser);
 
 router
   .route("/")
   .get(async (req, res) => {
-    const playlists = await getPlaylists();
+    // console.log("req.user.id", req.user.id);
+    const playlists = await getPlaylistsByUserId(req.user.id);
     res.send(playlists);
   })
   .post(async (req, res) => {
@@ -23,7 +29,7 @@ router
     if (!name || !description)
       return res.status(400).send("Request body requires: name, description");
 
-    const playlist = await createPlaylist(name, description);
+    const playlist = await createPlaylist(name, description, req.user.id);
     res.status(201).send(playlist);
   });
 
@@ -35,18 +41,32 @@ router.param("id", async (req, res, next, id) => {
   next();
 });
 
-router.route("/:id").get((req, res) => {
-  res.send(req.playlist);
+router.route("/:id").get(async (req, res) => {
+  if (req.user) {
+    const playlist = await getPlaylistById(req.playlist.id);
+    if (playlist.user_id !== req.user.id) {
+      return res.status(403).send("User does not own this playlist");
+    }
+    res.send(playlist);
+  }
 });
 
 router
   .route("/:id/tracks")
   .get(async (req, res) => {
+    if (req.playlist.user_id !== req.user.id) {
+      return res.status(403).send("User does not own this playlist");
+    }
     const tracks = await getTracksByPlaylistId(req.playlist.id);
+
     res.send(tracks);
   })
   .post(async (req, res) => {
     if (!req.body) return res.status(400).send("Request body is required.");
+
+    if (req.playlist.user_id !== req.user.id) {
+      return res.status(403).send("You do not own playlist");
+    }
 
     const { trackId } = req.body;
     if (!trackId) return res.status(400).send("Request body requires: trackId");
